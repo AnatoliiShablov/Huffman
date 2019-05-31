@@ -2,67 +2,22 @@
 #include <array>
 #include <cstdio>
 
-#include "haffman_tree.h"
-
-std::vector<unsigned char> to_bytes(std::vector<bool> &bool_data, bool full = false) {
-    std::vector<unsigned char> result;
-    size_t num;
-    for (num = 0; num + (full ? 7 : 8) < bool_data.size(); num += 8) {
-        unsigned char c = 0;
-        for (int i = 0; i < 8; ++i) {
-            c <<= 1;
-            c |= bool_data[num + i];
-        }
-        result.push_back(c);
-    }
-    bool_data.erase(bool_data.begin(), (bool_data.begin() + num));
-    return result;
-}
+#include "haffman_zipper.h"
 
 void code(FILE *input, FILE *output) {
-    haffman_tree tree;
-    std::array<std::pair<size_t, unsigned char>, 256> stats;
-    for (size_t i = 0; i < 256; i++) {
-        stats[i] = std::make_pair(0, i);
-    }
-    auto *bytes = static_cast<unsigned char *>(std::malloc(8192));
-    std::vector<bool> new_bools; // not bytes, but...
-    bool flag = true;
+    haffman_zipper tree;
+    std::vector<unsigned char> bytes(8192);
+    std::vector<unsigned char> coded;
     while (!std::feof(input)) {
-        size_t amount = std::fread(bytes, 1, 8192, input);
-        for (size_t i = 0; i < amount; i++) {
-            if (flag) { tree.rebuild_tree(stats); }
-            std::vector<bool> symbol_code = tree.code(bytes[i]);
-            for (size_t ch = 0; ch < 256; ch++) {
-                if (stats[ch].second == bytes[i]) {
-                    stats[ch].first++;
-                    flag = false;
-                    while (ch != 255 && stats[ch + 1].first < stats[ch].first) {
-                        std::swap(stats[ch + 1], stats[ch]);
-                        ch++;
-                        flag = true;
-                    }
-                    break;
-                }
-            }
-            new_bools.insert(new_bools.end(), symbol_code.begin(), symbol_code.end());
-            if (new_bools.size() > 10000) {
-                std::vector<unsigned char> tmp = to_bytes(new_bools);
-                std::fwrite(tmp.data(), 1, tmp.size(), output);
-            }
+        std::fread(bytes.data(), 1, 8192, input);
+        tree.code(bytes, coded);
+        if (coded.size() > 8192) {
+            std::fwrite(coded.data(), 1, coded.size(), output);
+            coded.clear();
         }
     }
-    std::free(bytes);
-    if (new_bools.empty()) {
-        return;
-    } else {
-        new_bools.push_back(new_bools.back() ^ true);
-        while (new_bools.size() % 8) {
-            new_bools.push_back(new_bools.back());
-        }
-        std::vector<unsigned char> tmp = to_bytes(new_bools, true);
-        std::fwrite(tmp.data(), 1, tmp.size(), output);
-    }
+    std::fwrite(coded.data(), 1, coded.size(), output);
+    std::fputc(tree.final(), output);
 }
 
 bool get_next(std::pair<int, int> &state, unsigned char &now, unsigned char &next, unsigned char &next_after_next, size_t &index, FILE *input) {
@@ -109,7 +64,7 @@ bool get_next(std::pair<int, int> &state, unsigned char &now, unsigned char &nex
 }
 
 void decode(FILE *input, FILE *output) {
-    haffman_tree tree;
+    haffman_zipper tree;
     std::array<std::pair<size_t, unsigned char>, 256> stats;
     for (size_t i = 0; i < 256; i++) {
         stats[i] = std::make_pair(0, i);
@@ -140,7 +95,7 @@ void decode(FILE *input, FILE *output) {
     size_t index(0);
     bool flag = true;
     while (state.first != 3) {
-        if (flag) { tree.rebuild_tree(stats); }
+        if (flag) { tree.rebuild_tree_shit(stats); }
         unsigned char symbol = tree.decode(&get_next, state, now, next, next_after_next, index, input);
         for (size_t ch = 0; ch < 256; ch++) {
             if (stats[ch].second == symbol) {
@@ -160,7 +115,7 @@ void decode(FILE *input, FILE *output) {
 
 int main() {
     FILE *input_file = std::fopen("1", "rb");
-    FILE *output_file = std::fopen("Var2", "wb");
+    FILE *output_file = std::fopen("Makefile.2", "wb");
 
     decode(input_file, output_file);
 
