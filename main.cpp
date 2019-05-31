@@ -1,124 +1,116 @@
 #include <vector>
 #include <array>
 #include <cstdio>
+#include <chrono>
+#include <cstring>
 
-#include "haffman_zipper.h"
+#include "huffman_zipper.h"
 
-void code(FILE *input, FILE *output) {
-    haffman_zipper tree;
-    std::vector<unsigned char> bytes(8192);
+bool empty(FILE *file) {
+    int c = getc(file);
+    if (c != EOF) {
+        ungetc(c, file);
+        return false;
+    }
+    return true;
+}
+
+void encode(FILE *source, FILE *destination) {
+    if (empty(source)) {
+        return;
+    }
+    huffman_zipper encoding_system;
+    auto *bytes = static_cast<unsigned char *>(std::malloc(1024 * 1024));
     std::vector<unsigned char> coded;
-    while (!std::feof(input)) {
-        std::fread(bytes.data(), 1, 8192, input);
-        tree.code(bytes, coded);
-        if (coded.size() > 8192) {
-            std::fwrite(coded.data(), 1, coded.size(), output);
+    coded.reserve(1024 * 1024);
+    size_t i = 1;
+    while (!std::feof(source)) {
+        size_t length = std::fread(bytes, 1, 1024 * 1024, source);
+        encoding_system.code(bytes, length, coded);
+        std::printf("%zu - blocks were loaded\n", i++);
+        if (coded.size() > 1024 * 512) {
+            std::fwrite(coded.data(), 1, coded.size(), destination);
             coded.clear();
         }
     }
-    std::fwrite(coded.data(), 1, coded.size(), output);
-    std::fputc(tree.final(), output);
+    std::free(bytes);
+    std::fwrite(coded.data(), 1, coded.size(), destination);
+    std::fputc(encoding_system.final(), destination);
 }
 
-bool get_next(std::pair<int, int> &state, unsigned char &now, unsigned char &next, unsigned char &next_after_next, size_t &index, FILE *input) {
-    if ((state.first == 0 || state.first == 1) && index < 8) {
-        return static_cast<bool>(now & 1 << (7 - (index++)));
-    }
-    if (state.first == 0 && index == 8) {
-        now = next;
-        next = next_after_next;
-        next_after_next = static_cast<unsigned char>(getc(input));
-        if (std::feof(input)) {
-            if (next == 255 || next == 0) {
-                state.first = 2;
-                state.second = 8;
-            } else {
-                state.first = 1;
-                int max_index = 7;
-                while (max_index && static_cast<bool>(next & (1 << (7 - max_index))) == static_cast<bool>(next & (1 << (8 - max_index)))) {
-                    max_index--;
-                }
-                state.second = max_index;
-            }
-        }
-        index = 0;
-        return static_cast<bool>(now & 1 << (7 - (index++)));
-    }
-    if (state.first == 1 && index == 8) {
-        now = next;
-        state.first = 2;
-        if (state.second == 1) {
-            state.first = 3;
-        }
-        index = 0;
-        return static_cast<bool>(now & 1 << (7 - (index++)));
-    }
-
-    if (state.first == 2 && index + 1 == state.second) {
-        state.first = 3;
-        return static_cast<bool>(now & 1 << (7 - (index++)));
-    }
-    if (state.first == 2 && index + 1 < state.second) {
-        return static_cast<bool>(now & 1 << (7 - (index++)));
-    }
-}
-
-void decode(FILE *input, FILE *output) {
-    haffman_zipper tree;
-    std::array<std::pair<size_t, unsigned char>, 256> stats;
-    for (size_t i = 0; i < 256; i++) {
-        stats[i] = std::make_pair(0, i);
-    }
-    bool end_reached = false;
-    std::pair<int, int> state(0, 0);
-    auto now = static_cast<unsigned char>(std::getc(input));
-    if (std::feof(input)) {
+void decode(FILE *source, FILE *destination) {
+    if (empty(source)) {
         return;
     }
-    auto next = static_cast<unsigned char>(std::getc(input));
-    if (std::feof(input)) {
-        throw std::runtime_error("No such word :(");
-    }
-    auto next_after_next = static_cast<unsigned char>(std::getc(input));
-    if (std::feof(input)) {
-        if (next == 255 || next == 0) {
-            state.first = 2;
-            state.second = 8;
-        } else {
-            state.first = 1;
-            int max_index = 7;
-            while (max_index && ((next & (1 << max_index)) == (now & (1 << (max_index - 1))))) {
-                max_index--;
-            }
+    huffman_zipper decoding_system;
+    auto *bytes = static_cast<unsigned char *>(std::malloc(1024 * 1024));
+    size_t last_uncoded = 0;
+    size_t length = 0;
+    std::vector<unsigned char> decoded;
+    decoded.reserve(1024 * 1024);
+    size_t i = 1;
+    while (!std::feof(source)) {
+        std::memmove(bytes, bytes + last_uncoded, length - last_uncoded);
+        length -= last_uncoded;
+        length += std::fread(bytes + length, 1, 1024 * 1024 - length, source);
+        last_uncoded = decoding_system.decode(bytes, length, decoded, std::feof(source));
+        std::printf("%zu - blocks were loaded\n", i++);
+        if (decoded.size() > 1024 * 512) {
+            std::fwrite(decoded.data(), 1, decoded.size(), destination);
+            decoded.clear();
         }
     }
-    size_t index(0);
-    bool flag = true;
-    while (state.first != 3) {
-        if (flag) { tree.rebuild_tree_shit(stats); }
-        unsigned char symbol = tree.decode(&get_next, state, now, next, next_after_next, index, input);
-        for (size_t ch = 0; ch < 256; ch++) {
-            if (stats[ch].second == symbol) {
-                stats[ch].first++;
-                flag = false;
-                while (ch != 255 && stats[ch + 1].first < stats[ch].first) {
-                    std::swap(stats[ch + 1], stats[ch]);
-                    ch++;
-                    flag = true;
-                }
-                break;
-            }
-        }
-        std::putc(symbol, output);
+    std::free(bytes);
+    std::fwrite(decoded.data(), 1, decoded.size(), destination);
+    if (!decoding_system.decoded()) {
+        std::fclose(destination);
+        throw std::runtime_error("Not enough bits :(");
     }
 }
 
-int main() {
-    FILE *input_file = std::fopen("1", "rb");
-    FILE *output_file = std::fopen("Makefile.2", "wb");
-
-    decode(input_file, output_file);
-
-    std::fclose(input_file);
-    std::fclose(output_file);
+int main(int argc, char *argv[]) {
+    if (argc != 4 && argc != 3) {
+        std::fprintf(stdout, "Huffman_zip  [options] source destination\n--mode=encode|decode mode od zipper [encode]\n");
+        std::fprintf(stderr, "Amount of args = %d\n", argc);
+        return 0;
+    }
+    if (argc == 3) {
+        FILE *input = std::fopen(argv[1], "rb");
+        if (!input) {
+            std::fprintf(stdout, "Wrong name of file\n");
+            std::fprintf(stderr, "File with name %s doesn't exists\n", argv[1]);
+            return 0;
+        }
+        FILE *output = std::fopen(argv[2], "wb");
+        encode(input, output);
+        std::fclose(input);
+        std::fclose(output);
+    } else if (strcmp(argv[1], "--mode=encode") == 0) {
+        FILE *input = std::fopen(argv[2], "rb");
+        if (!input) {
+            std::fprintf(stdout, "Wrong name of file\n");
+            std::fprintf(stderr, "File with name %s doesn't exists\n", argv[2]);
+            return 0;
+        }
+        FILE *output = std::fopen(argv[3], "wb");
+        encode(input, output);
+        std::fclose(input);
+        std::fclose(output);
+    } else if (strcmp(argv[1], "--mode=decode") == 0) {
+        FILE *input = std::fopen(argv[2], "rb");
+        if (!input) {
+            std::fprintf(stdout, "Wrong name of file\n");
+            std::fprintf(stderr, "File with name %s doesn't exists\n", argv[2]);
+            return 0;
+        }
+        FILE *output = std::fopen(argv[3], "wb");
+        decode(input, output);
+        std::fclose(input);
+        std::fclose(output);
+    } else {
+        std::fprintf(stdout, "Wrong option\n");
+        std::fprintf(stderr, "Option %s doesn't exists\n", argv[1]);
+        return 0;
+    }
+    return 0;
 }
