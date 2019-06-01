@@ -2,7 +2,7 @@
 
 void huffman_zipper::add_byte(unsigned char byte, size_t max) {
     for (size_t i = 8; i-- != max;) {
-        buffer_bool.emplace_back(byte & (1 << i));
+        buffer_bool.emplace(byte & (1 << i));
     }
 }
 
@@ -20,10 +20,12 @@ void huffman_zipper::inc_word(unsigned char byte) {
     amount_of_bytes++;
     if ((amount_of_bytes & amount_of_bytes - 1) == 0) {
         rebuild_tree();
+    } else {
+        tree_position = tree_decode;
     }
 }
 
-huffman_zipper::huffman_zipper() : buffer_char(0), buffer_position(7), last(false), amount_of_bytes(0) {
+huffman_zipper::huffman_zipper() : tree_decode(nullptr), tree_position(nullptr), buffer_char(0), buffer_position(7), last(false), amount_of_bytes(0) {
     for (size_t i = 0; i < ALPHA_SIZE; i++) {
         stats[i].first = 0;
         stats[i].second = static_cast<unsigned char>(i);
@@ -32,51 +34,62 @@ huffman_zipper::huffman_zipper() : buffer_char(0), buffer_position(7), last(fals
 }
 
 void huffman_zipper::rebuild_tree() {
-    for (auto &it:tree_data) {
+    delete tree_decode;
+    for (auto &it:tree_encode) {
         it.clear();
     }
+
     std::vector<std::pair<size_t, std::vector<unsigned char>>> new_stats;
+    std::vector<huffman_tree *> new_trees;
     size_t i = 0, j = 0;
-    bool first, second;
     std::pair<size_t, std::vector<unsigned char>> next;
+    huffman_tree *next_tree;
     while (i != ALPHA_SIZE || j != ALPHA_SIZE - 2) {
+        next_tree = new huffman_tree();
         if (i < ALPHA_SIZE && (j >= new_stats.size() || new_stats[j].first >= stats[i].first)) {
-            tree_data[stats[i].second].push_back(false);
+            tree_encode[stats[i].second].push_back(false);
             next.first = stats[i].first;
             next.second.assign(1, stats[i].second);
+            next_tree->zero = new huffman_tree(stats[i].second);
             i++;
         } else {
             for (auto it : new_stats[j].second) {
-                tree_data[it].push_back(false);
+                tree_encode[it].push_back(false);
             }
             next.first = new_stats[j].first;
-            next.second = new_stats[j++].second;
+            next.second = new_stats[j].second;
+            next_tree->zero = new_trees[j];
+            j++;
         }
         if (i < ALPHA_SIZE && (j >= new_stats.size() || new_stats[j].first >= stats[i].first)) {
-            tree_data[stats[i].second].push_back(true);
+            tree_encode[stats[i].second].push_back(true);
             next.first += stats[i].first;
             next.second.push_back(stats[i].second);
+            next_tree->one = new huffman_tree(stats[i].second);
             i++;
         } else {
             for (auto it : new_stats[j].second) {
-                tree_data[it].push_back(true);
+                tree_encode[it].push_back(true);
             }
             next.first += new_stats[j].first;
             next.second.insert(next.second.end(), new_stats[j].second.begin(), new_stats[j].second.end());
+            next_tree->one = new_trees[j];
             j++;
         }
         new_stats.emplace_back(next);
+        new_trees.push_back(next_tree);
     }
-    for (auto &it : tree_data) {
+    for (auto &it : tree_encode) {
         for (i = 0; i < it.size() / 2; i++) {
             std::swap(it[i], it[it.size() - i - 1]);
         }
     }
+    tree_position = tree_decode = new_trees.back();
 }
 
-void huffman_zipper::code(unsigned char const *words, size_t length, std::vector<unsigned char> &encoded) {
+void huffman_zipper::encode(unsigned char const *words, size_t length, std::vector<unsigned char> &encoded) {
     for (size_t i = 0; i < length; i++) {
-        for (bool &&j : tree_data[words[i]]) {
+        for (bool &&j : tree_encode[words[i]]) {
             buffer_char |= j << buffer_position;
             if (buffer_position-- == 0) {
                 encoded.push_back(buffer_char);
@@ -84,7 +97,7 @@ void huffman_zipper::code(unsigned char const *words, size_t length, std::vector
                 buffer_position = 7;
             }
         }
-        last = tree_data[words[i]].back();
+        last = tree_encode[words[i]].back();
         inc_word(words[i]);
     }
 }
@@ -129,56 +142,37 @@ size_t huffman_zipper::decode(unsigned char const *words, size_t length, std::ve
 
     size_t last_uncoded = 0;
     while (last_uncoded != length) {
-        for (size_t i = 0; i < 256; i++) {
-            while (buffer_bool.size() < tree_data[i].size()) {
-                if (last_uncoded == length) {
-                    break;
-                } else if (last_uncoded + 1 == length) {
-                    add_byte(words[last_uncoded++], max_index);
-                } else {
-                    add_byte(words[last_uncoded++]);
-                }
+        if (buffer_bool.empty()) {
+            if (last_uncoded + 1 == length) {
+                add_byte(words[last_uncoded++], max_index);
+            } else {
+                add_byte(words[last_uncoded++]);
             }
-            if (buffer_bool.size() < tree_data[i].size()) {
-                continue;
-            }
-            bool correctness_flag = true;
-            for (size_t j = 0; j < tree_data[i].size(); j++) {
-                if (tree_data[i][j] != buffer_bool[j]) {
-                    correctness_flag = false;
-                    break;
-                }
-            }
-            if (correctness_flag) {
-                decoded.emplace_back(i);
-                buffer_bool.erase(buffer_bool.begin(), buffer_bool.begin() + tree_data[i].size());
-                inc_word(decoded.back());
-                break;
-            }
+        }
+        bool now = buffer_bool.front();
+        buffer_bool.pop();
+        if (now) {
+            tree_position = tree_position->one;
+        } else {
+            tree_position = tree_position->zero;
+        }
+        if (!tree_position->one) {
+            decoded.emplace_back(tree_position->c);
+            inc_word(decoded.back());
         }
     }
     if (eos) {
-        bool used = true;
-        while (used) {
-            used = false;
-            for (size_t i = 0; i < 256; i++) {
-                if (buffer_bool.size() < tree_data[i].size()) {
-                    continue;
-                }
-                bool correctness_flag = true;
-                for (size_t j = 0; j < tree_data[i].size(); j++) {
-                    if (tree_data[i][j] != buffer_bool[j]) {
-                        correctness_flag = false;
-                        break;
-                    }
-                }
-                if (correctness_flag) {
-                    used = true;
-                    decoded.emplace_back(i);
-                    buffer_bool.erase(buffer_bool.begin(), buffer_bool.begin() + tree_data[i].size());
-                    inc_word(decoded.back());
-                    break;
-                }
+        while (!buffer_bool.empty()) {
+            bool now = buffer_bool.front();
+            buffer_bool.pop();
+            if (now) {
+                tree_position = tree_position->one;
+            } else {
+                tree_position = tree_position->zero;
+            }
+            if (!tree_position->one) {
+                decoded.emplace_back(tree_position->c);
+                inc_word(decoded.back());
             }
         }
         return flag ? length + 1 : last_uncoded;
@@ -187,5 +181,9 @@ size_t huffman_zipper::decode(unsigned char const *words, size_t length, std::ve
 }
 
 bool huffman_zipper::decoded() {
-    return buffer_bool.empty();
+    return tree_position == tree_decode;
+}
+
+huffman_zipper::~huffman_zipper() {
+    delete tree_decode;
 }

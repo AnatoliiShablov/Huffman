@@ -3,7 +3,7 @@ project(huffman_zip)
 
 set(CMAKE_CXX_STANDARD 17)
 
-set(CMAKE_CXX_FLAGS_RELEASE  "${CMAKE_CXX_FLAGS_RELEASE} -O3")
+set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -O3")
 
 add_library(${CMAKE_PROJECT_NAME}_lib SHARED huffman_zipper.h huffman_zipper.cpp)
 

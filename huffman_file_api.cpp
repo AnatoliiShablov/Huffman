@@ -22,7 +22,7 @@ void encode(FILE *source, FILE *destination, bool print) {
     size_t i = 1;
     while (!std::feof(source)) {
         size_t length = std::fread(bytes, 1, 1024 * 1024, source);
-        encoding_system.code(bytes, length, coded);
+        encoding_system.encode(bytes, length, coded);
         if (print) {
             std::printf("%zu - blocks were loaded\n", i++);
         };

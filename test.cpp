@@ -87,7 +87,7 @@ int main() {
     char const *source = "1";
     char const *dest = "2";
     char const *buf = "coded";
-    for (size_t i = 0; i < 20; i++) {
+    for (size_t i = 0; i < 32; i++) {
         std::printf("%2zu|",i+1);
         if(i == 10) {
             create_file(buf, 1);

@@ -3,13 +3,32 @@
 
 #include <vector>
 #include <array>
+#include <queue>
 #include <functional>
 #include <algorithm>
 
 class huffman_zipper {
+    struct huffman_tree {
+        huffman_tree *zero;
+
+        huffman_tree *one;
+
+        unsigned char c;
+
+        explicit huffman_tree(unsigned char c = 0) : zero(nullptr), one(nullptr), c(c) {}
+
+        ~huffman_tree() {
+            delete zero, delete one;
+        }
+    };
+
     static size_t const ALPHA_SIZE = 256;
 
-    std::array<std::vector<bool>, ALPHA_SIZE> tree_data;
+    std::array<std::vector<bool>, ALPHA_SIZE> tree_encode;
+
+    huffman_tree *tree_decode;
+
+    huffman_tree *tree_position;
 
     std::array<std::pair<size_t, unsigned char>, ALPHA_SIZE> stats;
 
@@ -19,7 +38,7 @@ class huffman_zipper {
 
     bool last;
 
-    std::vector<bool> buffer_bool;
+    std::queue<bool> buffer_bool;
 
     size_t amount_of_bytes;
 
@@ -30,9 +49,11 @@ class huffman_zipper {
  public:
     huffman_zipper();
 
+    ~huffman_zipper();
+
     void rebuild_tree();
 
-    void code(unsigned char const *words, size_t length, std::vector<unsigned char> &encoded);
+    void encode(unsigned char const *words, size_t length, std::vector<unsigned char> &encoded);
 
     unsigned char final();
 
