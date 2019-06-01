@@ -1,5 +1,5 @@
-#ifndef SH_ZIP_LIBRARY_H
-#define SH_ZIP_LIBRARY_H
+#ifndef HUFFMAN_ZIPPER
+#define HUFFMAN_ZIPPER
 
 #include <vector>
 #include <array>
